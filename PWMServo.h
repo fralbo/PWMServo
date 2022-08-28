@@ -65,6 +65,8 @@ class PWMServo
     uint8_t angle;       // in degrees
     uint8_t min16;       // minimum pulse, 16uS units  (default is 34)
     uint8_t max16;       // maximum pulse, 16uS units, 0-4ms range (default is 150)
+    uint8_t periodMS;     // PWM period between 10 and 22 ms
+
 #if defined(__AVR__)
     static void seizeTimer1();
     static void releaseTimer1();
@@ -87,6 +89,8 @@ class PWMServo
                              // Only works for 9 and 10.
     void detach();
     void write(int angleArg); // specify the angle in degrees, 0 to 180
+    void writeMicroSeconds(uint16_t usec); // specify the angle in usec from 544 to 2400 usec
+    uint8_t setPWMPeriod(int pinArg, uint8_t msec);   // Specify the PWM period, default is 20 ms
     uint8_t read() { return angle; }
     uint8_t attached();
 };

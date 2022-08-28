@@ -134,6 +134,15 @@ void PWMServo::detach()
   #endif
 }
 
+void PWMServo::writeMicroSeconds(uint16_t usec) 
+{
+  if (pin == SERVO_PIN_A) OCR1A = p;
+  if (pin == SERVO_PIN_B) OCR1B = p;
+  #ifdef SERVO_PIN_C
+  if (pin == SERVO_PIN_C) OCR1C = p;
+  #endif
+}
+
 void PWMServo::write(int angleArg)
 {
   uint16_t p;
@@ -146,11 +155,8 @@ void PWMServo::write(int angleArg)
   // That 8L on the end is the TCNT1 prescaler, it will need to change if the clock's prescaler changes,
   // but then there will likely be an overflow problem, so it will have to be handled by a human.
   p = (min16*16L*clockCyclesPerMicrosecond() + (max16-min16)*(16L*clockCyclesPerMicrosecond())*angle/180L)/8L;
-  if (pin == SERVO_PIN_A) OCR1A = p;
-  if (pin == SERVO_PIN_B) OCR1B = p;
-  #ifdef SERVO_PIN_C
-  if (pin == SERVO_PIN_C) OCR1C = p;
-  #endif
+
+  writeMicroSeconds(p);
 }
 
 uint8_t PWMServo::attached()
@@ -170,20 +176,60 @@ uint32_t PWMServo::attachedpins[(NUM_DIGITAL_PINS+31)/32]; // 1 bit per digital 
 
 PWMServo::PWMServo() : pin(255), angle(NO_ANGLE) {}
 
+uint8_t PWMServo::setPWMPeriod(int pinArg, uint8_t msec) {
+
+  if ((msec < 10) || (msec > 22)) return 0;
+
+  periodMS = msec;
+
+  if (pinArg < 0 || pinArg >= NUM_DIGITAL_PINS) return 0;
+  if (!digitalPinHasPWM(pinArg)) return 0;
+  pin = pinArg;
+
+  analogWriteFrequency(pin, 1000/periodMS);
+  return 1;
+
+}
+
+
 uint8_t PWMServo::attach(int pinArg, int min, int max)
 {
-	//Serial.printf("attach, pin=%d, min=%d, max=%d\n", pinArg, min, max);
-	if (pinArg < 0 || pinArg >= NUM_DIGITAL_PINS) return 0;
-	if (!digitalPinHasPWM(pinArg)) return 0;
-	pin = pinArg;
-	analogWriteFrequency(pin, 50);
-	min16 = min >> 4;
-	max16 = max >> 4;
-	angle = NO_ANGLE;
-	digitalWrite(pin, LOW);
-	pinMode(pin, OUTPUT);
-	attachedpins[pin >> 5] |= (1 << (pin & 31));
-	return 1;
+  //Serial.printf("attach, pin=%d, min=%d, max=%d\n", pinArg, min, max);
+  if (pinArg < 0 || pinArg >= NUM_DIGITAL_PINS) return 0;
+  if (!digitalPinHasPWM(pinArg)) return 0;
+  pin = pinArg;
+  periodMS = 20;
+  analogWriteFrequency(pin, 50);
+  min16 = min >> 4;
+  max16 = max >> 4;
+  angle = NO_ANGLE;
+  digitalWrite(pin, LOW);
+  pinMode(pin, OUTPUT);
+  attachedpins[pin >> 5] |= (1 << (pin & 31));
+  return 1;
+}
+
+void PWMServo::writeMicroSeconds(uint16_t usec)
+{
+  uint16_t min = min16 * 16;
+  uint16_t max = max16 * 16;
+
+  usec = usec < min ? min : usec;
+  usec = usec > max ? max : usec;
+  //uint32_t duty = (usec * 3355) >> 14;
+  uint32_t duty = ((usec * 4096) / (periodMS * 1000));
+  //Serial.printf("pin=%d, us=%d, duty=%d, min=%d, max=%d\n",
+  //  pin, usec, duty, min16<<4, max16<<4);
+#if TEENSYDUINO >= 137
+  noInterrupts();
+  uint32_t oldres = analogWriteResolution(12);
+  analogWrite(pin, duty);
+  //analogWriteResolution(oldres);
+  interrupts();
+#else
+  analogWriteResolution(12);
+  analogWrite(pin, duty);
+#endif
 }
 
 void PWMServo::write(int angleArg)
@@ -194,21 +240,11 @@ void PWMServo::write(int angleArg)
 	if (angleArg > 180) angleArg = 180;
 	angle = angleArg;
 	uint32_t us = (((max16 - min16) * 46603 * angle) >> 11) + (min16 << 12); // us*256
-	uint32_t duty = (us * 3355) >> 22;
 	//float usec = (float)((max16 - min16)<<4) * ((float)angle / 180.0f) + (float)(min16<<4);
 	//uint32_t duty = (int)(usec / 20000.0f * 4096.0f);
-	//Serial.printf("angle=%d, usec=%.2f, us=%.2f, duty=%d, min=%d, max=%d\n",
-		//angle, usec, (float)us / 256.0f, duty, min16<<4, max16<<4);
-#if TEENSYDUINO >= 137
-	noInterrupts();
-	uint32_t oldres = analogWriteResolution(12);
-	analogWrite(pin, duty);
-	analogWriteResolution(oldres);
-	interrupts();
-#else
-	analogWriteResolution(12);
-	analogWrite(pin, duty);
-#endif
+	//Serial.printf("angle=%d, usec=%.2f, us=%d, us=%.2f,",
+	//	angle, usec, us, (float)us / 256.0f);
+	writeMicroSeconds((uint)(us + 128) / 256);
 }
 
 uint8_t PWMServo::attached()
